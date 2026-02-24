@@ -53,18 +53,19 @@ def hybrid_search(request: QueryRequest):
     cursor = conn.cursor()
 
     cursor.execute(
-        """
-        SELECT * FROM hybrid_search(
-            %s,
-            %s,
-            %s,
-            0.7,
-            1.3,
-            40
-        )
-        """,
-        (query_text, query_embedding, match_count)
+    """
+    SELECT * FROM hybrid_search(
+        %s,
+        %s,
+        %s,
+        %s,
+        0.7,
+        1.3,
+        40
     )
+    """,
+    (tenant, query_text, query_embedding, match_count)
+)
 
     results = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
@@ -85,3 +86,4 @@ def hybrid_search(request: QueryRequest):
     return {
         "context": context_text
     }
+
