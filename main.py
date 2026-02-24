@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-import psycopg2
+from psycopg2 import pool
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
@@ -21,8 +21,9 @@ DB_PORT = os.getenv("DB_PORT")
 # Cliente OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Conexão Postgres
-conn = psycopg2.connect(
+# 🔥 Connection Pool (PRODUÇÃO)
+connection_pool = pool.SimpleConnectionPool(
+    1, 20,  # mínimo e máximo de conexões
     host=DB_HOST,
     database=DB_NAME,
     user=DB_USER,
@@ -32,7 +33,7 @@ conn = psycopg2.connect(
 
 class QueryRequest(BaseModel):
     query: str
-    match_count: int = 10
+    match_count: int = 5
 
 @app.post("/search")
 def hybrid_search(request: QueryRequest):
@@ -47,7 +48,8 @@ def hybrid_search(request: QueryRequest):
 
     query_embedding = embedding_response.data[0].embedding
 
-    # 2️⃣ Chamar função Postgres
+    # 2️⃣ Buscar no banco usando pool
+    conn = connection_pool.getconn()
     cursor = conn.cursor()
 
     cursor.execute(
@@ -55,7 +57,10 @@ def hybrid_search(request: QueryRequest):
         SELECT * FROM hybrid_search(
             %s,
             %s,
-            %s
+            %s,
+            0.7,
+            1.3,
+            40
         )
         """,
         (query_text, query_embedding, match_count)
@@ -64,9 +69,19 @@ def hybrid_search(request: QueryRequest):
     results = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
 
+    cursor.close()
+    connection_pool.putconn(conn)
+
     response = [
         dict(zip(columns, row))
         for row in results
     ]
 
-    return {"results": response}
+    # 🔥 Retorna contexto pronto para o Agent
+    context_text = "\n\n".join(
+        [f"Documento {i+1}:\n{r['content']}" for i, r in enumerate(response)]
+    )
+
+    return {
+        "context": context_text
+    }
