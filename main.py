@@ -16,7 +16,8 @@ load_dotenv()
 DB_HOST = os.getenv("DB_HOST")
 DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_PORT = os.getenv("DB_PORT")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -48,7 +49,7 @@ def get_connection():
         host=DB_HOST,
         database=DB_NAME,
         user=DB_USER,
-        password=DB_PASS
+        password=DB_PASSWORD
     )
 
 # ==============================
@@ -157,4 +158,7 @@ def query_documents(request: QueryRequest):
 def health():
     return {"status": "API online"}
 
-
+print("DB_HOST:", DB_HOST)
+print("DB_NAME:", DB_NAME)
+print("DB_USER:", DB_USER)
+print("DB_PASS:", DB_PASSWORD)
