@@ -100,7 +100,7 @@ def ingest_documents(request: IngestRequest):
 # QUERY ENDPOINT
 # ==============================
 
-@app.post("/rag")
+@app.post("/query")
 def query_documents(request: QueryRequest):
 
     try:
@@ -156,4 +156,5 @@ def query_documents(request: QueryRequest):
 @app.get("/")
 def health():
     return {"status": "API online"}
+
 
