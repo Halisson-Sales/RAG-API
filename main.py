@@ -158,7 +158,3 @@ def query_documents(request: QueryRequest):
 def health():
     return {"status": "API online"}
 
-print("DB_HOST:", DB_HOST)
-print("DB_NAME:", DB_NAME)
-print("DB_USER:", DB_USER)
-print("DB_PASS:", DB_PASSWORD)
