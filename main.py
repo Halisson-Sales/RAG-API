@@ -7,54 +7,37 @@ from typing import List, Optional
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# ==============================
-# CONFIG
-# ==============================
-
 load_dotenv()
 
 DB_HOST = os.getenv("DB_HOST")
 DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_PORT = os.getenv("DB_PORT")
+DB_PORT = os.getenv("DB_PORT", 5432)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-app = FastAPI()
-
-# ==============================
-# MODELS
-# ==============================
+app = FastAPI(title="Hybrid RAG API")
 
 class IngestRequest(BaseModel):
     tenant_id: str
     documents: List[str]
     metadata: Optional[dict] = None
 
-
 class QueryRequest(BaseModel):
     tenant_id: str
     query: str
     top_k: int = 5
-
-
-# ==============================
-# DATABASE CONNECTION
-# ==============================
 
 def get_connection():
     return psycopg2.connect(
         host=DB_HOST,
         database=DB_NAME,
         user=DB_USER,
-        password=DB_PASSWORD
+        password=DB_PASSWORD,
+        port=DB_PORT
     )
-
-# ==============================
-# INGEST ENDPOINT
-# ==============================
 
 @app.post("/ingest")
 def ingest_documents(request: IngestRequest):
@@ -65,7 +48,6 @@ def ingest_documents(request: IngestRequest):
 
         for doc in request.documents:
 
-            # Gerar embedding
             embedding_response = client.embeddings.create(
                 model="text-embedding-3-small",
                 input=doc
@@ -73,7 +55,6 @@ def ingest_documents(request: IngestRequest):
 
             embedding = embedding_response.data[0].embedding
 
-            # Inserir no banco
             cur.execute(
                 """
                 INSERT INTO documents (tenant_id, content, embedding, metadata)
@@ -96,11 +77,6 @@ def ingest_documents(request: IngestRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# ==============================
-# QUERY ENDPOINT
-# ==============================
-
 @app.post("/query")
 def query_documents(request: QueryRequest):
 
@@ -116,20 +92,38 @@ def query_documents(request: QueryRequest):
 
         query_embedding = embedding_response.data[0].embedding
 
-        # Busca vetorial filtrada por tenant
+        # Peso dinâmico
+        if len(request.query.split()) <= 3:
+            vector_weight = 0.5
+            text_weight = 0.5
+        else:
+            vector_weight = 0.7
+            text_weight = 0.3
+
         cur.execute(
             """
-            SELECT content,
-                   embedding <=> %s::vector AS distance
+            SELECT
+                content,
+                embedding <=> %s::vector AS vector_distance,
+                ts_rank(fts, plainto_tsquery('portuguese', %s)) AS text_rank,
+                (
+                    (embedding <=> %s::vector) * %s
+                    -
+                    ts_rank(fts, plainto_tsquery('portuguese', %s)) * %s
+                ) AS hybrid_score
             FROM documents
             WHERE tenant_id = %s
-            ORDER BY embedding <=> %s::vector
-            LIMIT %s
+            ORDER BY hybrid_score ASC
+            LIMIT %s;
             """,
             (
                 query_embedding,
-                request.tenant_id,
+                request.query,
                 query_embedding,
+                vector_weight,
+                request.query,
+                text_weight,
+                request.tenant_id,
                 request.top_k
             )
         )
@@ -140,7 +134,12 @@ def query_documents(request: QueryRequest):
         conn.close()
 
         documents = [
-            {"content": row[0], "distance": row[1]}
+            {
+                "content": row[0],
+                "vector_distance": row[1],
+                "text_rank": row[2],
+                "hybrid_score": row[3]
+            }
             for row in results
         ]
 
@@ -149,12 +148,6 @@ def query_documents(request: QueryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# ==============================
-# HEALTH CHECK
-# ==============================
-
 @app.get("/")
 def health():
     return {"status": "API online"}
-
